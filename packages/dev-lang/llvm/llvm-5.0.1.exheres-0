@@ -1,0 +1,18 @@
+# Copyright 2012 Bjorn Pagen <bjornpagen@gmail.com>
+# Distributed under the terms of the GNU General Public License v2
+
+require llvm
+
+PLATFORMS="~amd64"
+
+src_prepare() {
+    llvm_src_prepare
+
+    edo pushd "${CMAKE_SOURCE}"
+    # https://bugs.llvm.org//show_bug.cgi?id=31870
+    edo rm test/tools/llvm-symbolizer/print_context.c
+    # Doesn't pass and it's basically just a test
+    # for the tests https://reviews.llvm.org/D33804#ffca40fb
+    edo rm test/BugPoint/unsymbolized.ll
+    edo popd
+}
