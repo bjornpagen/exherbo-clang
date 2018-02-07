@@ -1,0 +1,247 @@
+# Copyright 2018 Bjorn Pagen <bjornpagen@gmail.com>
+# Copyright 2012 Elias Pipping <pipping@exherbo.org>
+# Distributed under the terms of the GNU General Public License v2
+
+if ever is_scm ; then
+    SCM_REPOSITORY="http://llvm.org/git/clang.git"
+
+    SCM_tools_extra_REPOSITORY="http://llvm.org/git/clang-tools-extra.git"
+    SCM_SECONDARY_REPOSITORIES="tools_extra"
+
+    require scm-git
+else
+    MY_PNV=cfe-${PV}.src
+    WORK=${WORKBASE}/${MY_PNV}
+
+    DOWNLOADS="http://llvm.org/releases/${PV}/cfe-${PV}.src.tar.xz
+        http://llvm.org/releases/${PV}/clang-tools-extra-${PV}.src.tar.xz"
+fi
+
+require alternatives
+require cmake [ api=2 ]
+require python [ blacklist=3 with_opt=true multibuild=false ]
+
+export_exlib_phases src_unpack src_prepare src_configure src_compile src_test src_install
+
+SUMMARY="C language family frontend for LLVM"
+HOMEPAGE="http://clang.llvm.org/"
+
+LICENCES="UoI-NCSA"
+SLOT="0"
+
+LLVM_PVR=${PV}
+
+DEPENDENCIES="
+    build:
+        dev-lang/perl:*
+        dev-lang/python:*[>=2.7.0]
+        sys-devel/flex
+        doc? ( dev-python/Sphinx )
+    build+run:
+        dev-lang/llvm[~${LLVM_PVR}]
+        dev-libs/libxml2:2.0[>=2.5.3]
+    run:
+        !sys-devel/gcc:4.9[<4.9.2-r8] [[
+            description = [ Alternatives conflict ]
+            resolution = upgrade-blocked-before
+        ]]
+        !sys-devel/gcc:5.1[<5.2.0-r2] [[
+            description = [ Alternatives conflict ]
+            resolution = upgrade-blocked-before
+        ]]
+	post:
+		default-compiler-rt? ( =sys-libs/compiler-rt-${PV%_*}* )
+		default-libc++? ( sys-libs/libc++ )
+    suggestion:
+        dev-libs/compiler-rt [[
+            description = [ Sanitizer runtimes for clang ]
+        ]]
+        sys-libs/openmp [[
+            description = [ OpenMP runtime for clang ]
+        ]]
+		sys-libs/libc++ [[
+			description = [ LLVM's C++ STL library ]
+		]]
+"
+
+# clang is a cross compiler and can compile for any target without a
+# new binary being compiled for the target. this is only used for the
+# creation of the symlinks for targets; /usr/${CHOST}/bin/${target}-clang
+CROSS_COMPILE_TARGETS="
+    aarch64-unknown-linux-gnueabi
+    armv7-unknown-linux-gnueabi
+    armv7-unknown-linux-gnueabihf
+    i686-pc-linux-gnu
+    i686-pc-linux-musl
+    powerpc64-unknown-linux-gnu
+    x86_64-pc-linux-gnu
+    x86_64-pc-linux-musl
+"
+
+MYOPTIONS="
+    doc python
+	default-compiler-rt [[ description = [ Make clang use compiler-rt by default ] ]]
+	default-libc++ [[ description = [ Make clang link against libc++ by default ] ]]
+    ( targets: ${CROSS_COMPILE_TARGETS} ) [[ number-selected = at-least-one ]]
+"
+
+if ever is_scm; then
+    DEFAULT_SRC_PREPARE_PATCHES=(
+        "${FILES}"/clang-scm-lit.cfg-use-PATH.patch
+    )
+else
+    DEFAULT_SRC_PREPARE_PATCHES=(
+        "${FILES}"/clang-3.5.0-lit.cfg-use-PATH.patch
+    )
+fi
+
+if ! ever at_least 3.9.0 ; then
+    DEFAULT_SRC_PREPARE_PATCHES+=(
+         "${FILES}"/${PNV}-Install-cmake-files-to-lib-cmake-clang.patch
+         "${FILES}"/${PNV}-exherbo-multi-arch-paths.patch
+    )
+fi
+
+clang_src_unpack() {
+    cmake_src_unpack
+
+    if ever is_scm; then
+        edo mv tools_extra "${CMAKE_SOURCE}"/tools/extra
+    else
+        edo mv clang-tools-extra-${PV}.src "${CMAKE_SOURCE}"/tools/extra
+    fi
+}
+
+clang_src_prepare() {
+    edo pushd "${CMAKE_SOURCE}"
+
+    # ld tests will fail because of Exherbo's non-standard path for ld
+    edo rm test/Driver/{dyld-prefix.c,linux-ld.c,mips-cs.cpp}
+
+    # The build system doesn't pick up that LLVM has zlib support when doing a standalone build
+    edo rm test/Driver/nozlibcompress.c
+
+    # Fix the use of dot
+    edo sed -e 's/@DOT@//g' -i docs/doxygen.cfg.in
+    default
+
+    if ! ever is_scm && ! ever at_least 5.0.0; then
+        if [[ $(exhost --target) == arm* ]];then
+            edo sed -e "s/@@ARMHF_TARGET@@/$(exhost --target)/"   \
+                    -e "s/@@ARM_TARGET@@/$(exhost --target | sed 's/hf$//')/" \
+                    -i lib/Driver/Tools.cpp
+        else
+            edo sed -e "s/@@ARMHF_TARGET@@/arm-unknown-linux-gnueabihf/"    \
+                    -e "s/@@ARM_TARGET@@/arm-unknown-linux-gnueabi/"    \
+                    -i lib/Driver/Tools.cpp
+        fi
+
+        edo pushd tools/extra
+        expatch "${FILES}"/0001-Don-t-depend-on-llvm-targets-when-doing-a-standalone.patch
+        edo popd
+    fi
+
+    edo popd
+}
+
+clang_src_configure() {
+    # TODO(compnerd) hidden inline visibility causes test tools to fail to build as a required
+    # method is hidden; move the definition out of line, and export the interface
+    local args=(
+        -DCLANG_INCLUDE_TESTS:BOOL=$(expecting_tests TRUE FALSE)
+        -DLLVM_CONFIG:STRING=/usr/$(exhost --target)/bin/llvm-config
+        -DLLVM_LIT_ARGS:STRING="-sv"
+        -DLLVM_MAIN_SRC_DIR:STRING=/usr/$(exhost --target)
+        -DSUPPORTS_FVISIBILITY_INLINES_HIDDEN_FLAG:BOOL=NO
+		-DCLANG_DEFAULT_CXX_STDLIB=$(optionq default-libc++ || echo libc++)
+		-DCLANG_DEFAULT_RTLIB=$(optionq default-compiler-rt || echo compiler-rt)
+    )
+
+    ecmake "${args[@]}"
+}
+
+clang_src_compile() {
+    default
+
+    if option doc; then
+        edo pushd "${CMAKE_SOURCE}"/docs
+        emake -f Makefile.sphinx man html
+        edo popd
+    fi
+}
+
+clang_src_test() {
+    PATH="/usr/$(exhost --target)/libexec/llvm:${PATH}" \
+        CLANG="${PWD}/bin/clang" \
+        emake clang-test
+}
+
+clang_src_install() {
+    default
+    edo pushd "${IMAGE}"/usr/$(exhost --target)/bin
+    ln -s clang clang-cpp
+    edo popd
+
+    # the sole file here, config.h, is explicitly not installed
+    edo rm -R "${IMAGE}"/usr/$(exhost --target)/include/clang/Config
+
+    edo pushd "${CMAKE_SOURCE}"
+
+    if option doc; then
+        edo pushd docs/_build
+        doman man/*
+        dodoc -r html
+        edo popd
+    fi
+
+    edo popd
+
+    edo mv "${IMAGE}"/usr/$(exhost --target)/share/{clang,scan-build,scan-view} "${IMAGE}"/usr/share/
+    edo rmdir "${IMAGE}"/usr/$(exhost --target)/share
+
+    if option doc; then
+        edo pushd "${IMAGE}"/usr/share/man/man1
+        edo ln -s clang.1 clang++.1
+        edo ln -s clang.1 clang-cpp.1
+        edo popd
+    fi
+
+    if option python ; then
+        for abi in ${PYTHON_FILTERED_ABIS} ; do
+            if option python_abis:${abi} ; then
+                insinto $(python_get_sitedir)/clang
+                doins "${CMAKE_SOURCE}"/bindings/python/clang/*.py
+            fi
+        done
+        python_bytecompile
+    fi
+
+    local cc_alternatives=() cxx_alternatives=() cpp_alternatives=()
+    for target in ${CROSS_COMPILE_TARGETS};do
+        if option targets:${target};then
+            edo pushd "${IMAGE}"/usr/$(exhost --target)/bin
+            edo ln -s clang ${target}-clang
+            edo ln -s clang-cpp ${target}-clang-cpp
+            edo ln -s clang++ ${target}-clang++
+            edo popd
+            if option doc;then
+                edo pushd "${IMAGE}"/usr/share/man/man1
+                edo ln -s clang.1 ${target}-clang.1
+                edo ln -s clang-cpp.1 ${target}-clang-cpp.1
+                edo ln -s clang++.1 ${target}-clang++.1
+                edo popd
+                cc_alternatives+=(  /usr/share/man/man1/${target}-cc.1  ${target}-clang.1 )
+                cxx_alternatives+=( /usr/share/man/man1/${target}-c++.1 ${target}-clang++.1 )
+                cpp_alternatives+=( /usr/share/man/man1/${target}-cpp.1 ${target}-clang-cpp.1 )
+            fi
+            cc_alternatives+=(  /usr/$(exhost --target)/bin/${target}-cc  ${target}-clang   )
+            cxx_alternatives+=( /usr/$(exhost --target)/bin/${target}-c++ ${target}-clang++ )
+            cpp_alternatives+=( /usr/$(exhost --target)/bin/${target}-cpp ${target}-clang-cpp )
+        fi
+    done
+
+    alternatives_for cc     clang       100 "${cc_alternatives[@]}"
+    alternatives_for c++    clang       100 "${cxx_alternatives[@]}"
+    alternatives_for cpp    clang       100 "${cpp_alternatives[@]}"
+}
+
