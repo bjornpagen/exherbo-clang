@@ -154,9 +154,15 @@ clang_src_configure() {
         -DLLVM_LIT_ARGS:STRING="-sv"
         -DLLVM_MAIN_SRC_DIR:STRING=/usr/$(exhost --target)
         -DSUPPORTS_FVISIBILITY_INLINES_HIDDEN_FLAG:BOOL=NO
-		-DCLANG_DEFAULT_CXX_STDLIB=$(optionq providers:libc++ || echo libc++)
-		-DCLANG_DEFAULT_RTLIB=$(optionq providers:compiler-rt || echo compiler-rt)
     )
+
+	# Select C++ standard library to use
+	optionq providers:libc++ && args+=(-DCLANG_DEFAULT_CXX_STDLIB=libc++)
+	optionq providers:libstdc++ && args+=(-DCLANG_DEFAULT_CXX_STDLIB=libstdc++)
+
+	# Select compiler runtime libray to use
+	optionq providers:compiler-rt && args+=(-DCLANG_DEFAULT_RTLIB=compiler-rt)
+	optionq providers:libgcc && args+=(-DCLANG_DEFAULT_RTLIB=libgcc)
 
     ecmake "${args[@]}"
 }
