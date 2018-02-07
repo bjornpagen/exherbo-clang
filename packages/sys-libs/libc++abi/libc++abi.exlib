@@ -1,0 +1,57 @@
+# Copyright 2012 Saleem Abdulrasool <compnerd@compnerd.org>
+# Copyright 2017 Rasmus Thomsen <Rasmus.thomsen@protonmail.com>
+# Distributed under the terms of the GNU General Public License v2
+
+if ever is_scm ; then
+    SCM_REPOSITORY="http://llvm.org/git/libcxxabi.git"
+    SCM_libcxx_REPOSITORY="http://llvm.org/git/libcxx.git"
+    # Avoid naming mismatch between -scm and regular releases
+    SCM_libcxx_UNPACK_TO="${WORKBASE}/libcxx-${PV}.src"
+    SCM_SECONDARY_REPOSITORIES="libcxx"
+    require scm-git
+else
+    # We also have to download libcxx since we need its headers
+    # Otherwise we have an unresolveable dependency loop between
+    # libc++ and libc++abi
+    DOWNLOADS="
+        http://llvm.org/releases/${PV}/libcxxabi-${PV}.src.tar.xz
+        http://llvm.org/releases/${PV}/libcxx-${PV}.src.tar.xz
+    "
+fi
+
+require cmake [ api=2 ]
+
+export_exlib_phases src_install src_test
+
+SUMMARY="A new implementation of low level support for a standard C++ library"
+HOMEPAGE="http://libcxxabi.llvm.org/"
+
+LICENCES="|| ( MIT UoI-NCSA )"
+SLOT="0"
+MYOPTIONS=""
+
+DEPENDENCIES="
+    build+test:
+        dev-lang/llvm[>=4.0.0] [[ note = [ for llvm-config, llvm-lit ] ]]
+    test:
+        sys-libs/libc++[~${PV}]
+"
+
+CMAKE_SRC_CONFIGURE_PARAMS=(
+    -DLIBCXXABI_ENABLE_SHARED:BOOL=TRUE
+    -DLIBCXXABI_ENABLE_STATIC:BOOL=TRUE
+    -DLIBCXXABI_LIBCXX_INCLUDES:PATH="${WORKBASE}/libcxx-${PV}.src/include"
+    -DLIT_COMMAND:STRING="/usr/$(exhost --target)/bin/llvm-lit"
+)
+
+libc++abi_src_install() {
+    cmake_src_install
+
+    # install headers
+    insinto /usr/$(exhost --target)/include/libc++abi
+    doins "${CMAKE_SOURCE}"/include/*
+}
+
+libc++abi_src_test() {
+    emake check-cxxabi
+}

@@ -41,7 +41,7 @@ DEPENDENCIES="
         dev-lang/llvm[~${LLVM_PVR}]
         dev-libs/libxml2:2.0[>=2.5.3]
     run:
-		providers:compiler-rt? ( =sys-libs/compiler-rt-${PV%_*}* )
+		providers:compiler-rt? ( sys-libs/compiler-rt[~${PV}] )
 		providers:libgcc? ( sys-libs/libgcc:* )
         !sys-devel/gcc:4.9[<4.9.2-r8] [[
             description = [ Alternatives conflict ]
@@ -53,6 +53,7 @@ DEPENDENCIES="
         ]]
 	post:
 		providers:libc++? ( sys-libs/libc++ )
+		providers:libstdc++? ( sys-libs/libstdc++ )
     suggestion:
         dev-libs/compiler-rt [[
             description = [ Sanitizer runtimes for clang ]
