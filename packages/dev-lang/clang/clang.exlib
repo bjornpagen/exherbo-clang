@@ -41,6 +41,8 @@ DEPENDENCIES="
         dev-lang/llvm[~${LLVM_PVR}]
         dev-libs/libxml2:2.0[>=2.5.3]
     run:
+		providers:compiler-rt? ( =sys-libs/compiler-rt-${PV%_*}* )
+		providers:libgcc? ( sys-libs/libgcc:* )
         !sys-devel/gcc:4.9[<4.9.2-r8] [[
             description = [ Alternatives conflict ]
             resolution = upgrade-blocked-before
@@ -50,8 +52,7 @@ DEPENDENCIES="
             resolution = upgrade-blocked-before
         ]]
 	post:
-		default-compiler-rt? ( =sys-libs/compiler-rt-${PV%_*}* )
-		default-libc++? ( sys-libs/libc++ )
+		providers:libc++? ( sys-libs/libc++ )
     suggestion:
         dev-libs/compiler-rt [[
             description = [ Sanitizer runtimes for clang ]
@@ -80,8 +81,8 @@ CROSS_COMPILE_TARGETS="
 
 MYOPTIONS="
     doc python
-	default-compiler-rt [[ description = [ Make clang use compiler-rt by default ] ]]
-	default-libc++ [[ description = [ Make clang link against libc++ by default ] ]]
+	( providers: compiler-rt libgcc ) [[ number-selected = exactly-one ]]
+	( providers: libc++ libstdc++ ) [[ number-selected = exactly-one ]]
     ( targets: ${CROSS_COMPILE_TARGETS} ) [[ number-selected = at-least-one ]]
 "
 
@@ -153,8 +154,8 @@ clang_src_configure() {
         -DLLVM_LIT_ARGS:STRING="-sv"
         -DLLVM_MAIN_SRC_DIR:STRING=/usr/$(exhost --target)
         -DSUPPORTS_FVISIBILITY_INLINES_HIDDEN_FLAG:BOOL=NO
-		-DCLANG_DEFAULT_CXX_STDLIB=$(optionq default-libc++ || echo libc++)
-		-DCLANG_DEFAULT_RTLIB=$(optionq default-compiler-rt || echo compiler-rt)
+		-DCLANG_DEFAULT_CXX_STDLIB=$(optionq providers:libc++ || echo libc++)
+		-DCLANG_DEFAULT_RTLIB=$(optionq providers:compiler-rt || echo compiler-rt)
     )
 
     ecmake "${args[@]}"
