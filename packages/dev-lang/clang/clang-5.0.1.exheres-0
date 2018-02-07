@@ -3,4 +3,4 @@
 
 require clang
 
-PLATFORMS="~amd64 ~x86"<Paste>
+PLATFORMS="~amd64 ~x86"
